@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 
 const initialForm = {
   keyRootDir: '',
@@ -14,6 +15,7 @@ const initialForm = {
 function App() {
   const [form, setForm] = useState(initialForm);
   const [plan, setPlan] = useState(null);
+  const [result, setResult] = useState(null);
   const [message, setMessage] = useState('Ready');
 
   function updateField(name, value) {
@@ -23,25 +25,72 @@ function App() {
     }));
   }
 
+  function requestPayload() {
+    return {
+      ...form,
+      versionMajor: Number(form.versionMajor),
+      versionMinor: Number(form.versionMinor),
+      versionPatch: Number(form.versionPatch),
+      versionBuild: Number(form.versionBuild),
+    };
+  }
+
+  async function selectDirectory(fieldName) {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+    });
+
+    if (typeof selected === 'string') {
+      updateField(fieldName, selected);
+    }
+  }
+
+  async function selectFirmwareFile() {
+    const selected = await open({
+      directory: false,
+      multiple: false,
+      filters: [
+        { name: 'Firmware', extensions: ['bin', 'hex', 'srec', 'mot'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+
+    if (typeof selected === 'string') {
+      updateField('firmwarePath', selected);
+    }
+  }
+
   async function validateInputs() {
     setMessage('Validating firmware generation inputs...');
     setPlan(null);
+    setResult(null);
 
     try {
       const response = await invoke('validate_generation_inputs', {
-        request: {
-          ...form,
-          versionMajor: Number(form.versionMajor),
-          versionMinor: Number(form.versionMinor),
-          versionPatch: Number(form.versionPatch),
-          versionBuild: Number(form.versionBuild),
-        },
+        request: requestPayload(),
       });
 
       setPlan(response);
       setMessage('Validation finished');
     } catch (error) {
       setMessage(`Validation error: ${error}`);
+    }
+  }
+
+  async function generateFirmwareImage() {
+    setMessage('Generating header, encrypted firmware, and final image...');
+    setResult(null);
+
+    try {
+      const response = await invoke('generate_firmware_image', {
+        request: requestPayload(),
+      });
+
+      setResult(response);
+      setMessage('Firmware image generated');
+    } catch (error) {
+      setMessage(`Generation error: ${error}`);
     }
   }
 
@@ -52,39 +101,53 @@ function App() {
           <p className="eyebrow">Firmware Generator Test Structure</p>
           <h1>GUI Gen Firmware</h1>
           <p className="description">
-            Input key slot folders, a built firmware file, and version information
-            to validate the firmware generation plan before implementing binary
-            generation.
+            Generate a 1KB FWAC header, AES-256-CBC encrypted firmware, and a
+            final 2KB-aligned image with a 64-byte raw ECDSA signature at the end.
           </p>
         </header>
 
         <section className="form-grid">
-          <label className="field wide">
+          <label className="field wide path-field">
             <span>Key root directory</span>
-            <input
-              value={form.keyRootDir}
-              placeholder="C:\\keys"
-              onChange={(event) => updateField('keyRootDir', event.target.value)}
-            />
-            <small>Expected folders: 0, 1, 2, ... 9</small>
+            <div className="path-row">
+              <input
+                value={form.keyRootDir}
+                placeholder="C:\\keys"
+                onChange={(event) => updateField('keyRootDir', event.target.value)}
+              />
+              <button type="button" className="secondary" onClick={() => selectDirectory('keyRootDir')}>
+                Browse
+              </button>
+            </div>
+            <small>Expected files: keyRoot/1/1.key, keyRoot/1/1.pem ... keyRoot/10/10.key, keyRoot/10/10.pem</small>
           </label>
 
-          <label className="field wide">
+          <label className="field wide path-field">
             <span>Built firmware file</span>
-            <input
-              value={form.firmwarePath}
-              placeholder="C:\\firmware\\app.bin"
-              onChange={(event) => updateField('firmwarePath', event.target.value)}
-            />
+            <div className="path-row">
+              <input
+                value={form.firmwarePath}
+                placeholder="C:\\firmware\\app.bin"
+                onChange={(event) => updateField('firmwarePath', event.target.value)}
+              />
+              <button type="button" className="secondary" onClick={selectFirmwareFile}>
+                Browse
+              </button>
+            </div>
           </label>
 
-          <label className="field wide">
+          <label className="field wide path-field">
             <span>Output directory</span>
-            <input
-              value={form.outputDir}
-              placeholder="C:\\firmware\\output"
-              onChange={(event) => updateField('outputDir', event.target.value)}
-            />
+            <div className="path-row">
+              <input
+                value={form.outputDir}
+                placeholder="C:\\firmware\\output"
+                onChange={(event) => updateField('outputDir', event.target.value)}
+              />
+              <button type="button" className="secondary" onClick={() => selectDirectory('outputDir')}>
+                Browse
+              </button>
+            </div>
           </label>
 
           <label className="field">
@@ -136,6 +199,9 @@ function App() {
           <button type="button" onClick={validateInputs}>
             Validate Test Structure
           </button>
+          <button type="button" onClick={generateFirmwareImage}>
+            Generate Firmware Image
+          </button>
           <p className="status">{message}</p>
         </div>
 
@@ -177,6 +243,61 @@ function App() {
                 <h3>Warnings</h3>
                 <ul>
                   {plan.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+
+        {result && (
+          <section className="result-panel">
+            <h2>Generated Output</h2>
+            <dl className="summary-list">
+              <div>
+                <dt>Derived Key Index</dt>
+                <dd>{result.keyIndex}</dd>
+              </div>
+              <div>
+                <dt>Version U32</dt>
+                <dd>0x{result.versionU32.toString(16).padStart(8, '0').toUpperCase()}</dd>
+              </div>
+              <div>
+                <dt>Firmware Length</dt>
+                <dd>{result.firmwareLength} bytes</dd>
+              </div>
+              <div>
+                <dt>Final Image Length</dt>
+                <dd>{result.finalImageLength} bytes</dd>
+              </div>
+              <div>
+                <dt>Header</dt>
+                <dd>{result.headerPath}</dd>
+              </div>
+              <div>
+                <dt>Encrypted Firmware</dt>
+                <dd>{result.encryptedFirmwarePath}</dd>
+              </div>
+              <div>
+                <dt>Final Image</dt>
+                <dd>{result.finalImagePath}</dd>
+              </div>
+              <div>
+                <dt>FW SHA-256</dt>
+                <dd>{result.firmwareHashHex}</dd>
+              </div>
+              <div className="wide-summary">
+                <dt>Header SHA-256</dt>
+                <dd>{result.headerHashHex}</dd>
+              </div>
+            </dl>
+
+            {result.warnings.length > 0 && (
+              <div className="warning-box">
+                <h3>Warnings</h3>
+                <ul>
+                  {result.warnings.map((warning) => (
                     <li key={warning}>{warning}</li>
                   ))}
                 </ul>
