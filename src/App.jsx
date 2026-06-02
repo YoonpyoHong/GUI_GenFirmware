@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
 const initialForm = {
-  keyRootDir: '',
+  symmetricKeyDir: '',
+  privateKeyDir: '',
   firmwarePath: '',
   outputDir: '',
   versionMajor: 0,
@@ -108,18 +109,33 @@ function App() {
 
         <section className="form-grid">
           <label className="field wide path-field">
-            <span>Key root directory</span>
+            <span>Symmetric key directory</span>
             <div className="path-row">
               <input
-                value={form.keyRootDir}
-                placeholder="C:\\keys"
-                onChange={(event) => updateField('keyRootDir', event.target.value)}
+                value={form.symmetricKeyDir}
+                placeholder="C:\\keys\\symmetric"
+                onChange={(event) => updateField('symmetricKeyDir', event.target.value)}
               />
-              <button type="button" className="secondary" onClick={() => selectDirectory('keyRootDir')}>
+              <button type="button" className="secondary" onClick={() => selectDirectory('symmetricKeyDir')}>
                 Browse
               </button>
             </div>
-            <small>Expected files: keyRoot/1/1.key, keyRoot/1/1.pem ... keyRoot/10/10.key, keyRoot/10/10.pem</small>
+            <small>Expected files: 1.bin, 2.bin, ... 10.bin</small>
+          </label>
+
+          <label className="field wide path-field">
+            <span>Private key directory</span>
+            <div className="path-row">
+              <input
+                value={form.privateKeyDir}
+                placeholder="C:\\keys\\private"
+                onChange={(event) => updateField('privateKeyDir', event.target.value)}
+              />
+              <button type="button" className="secondary" onClick={() => selectDirectory('privateKeyDir')}>
+                Browse
+              </button>
+            </div>
+            <small>Expected files: 1.txt, 2.txt, ... 10.txt</small>
           </label>
 
           <label className="field wide path-field">
@@ -227,13 +243,14 @@ function App() {
               </div>
             </dl>
 
-            <h3>Key Slot Check</h3>
+            <h3>Key File Check</h3>
             <div className="slot-grid">
               {plan.keySlots.map((slot) => (
                 <article className={`slot-card ${slot.exists ? 'ok' : 'warn'}`} key={slot.index}>
-                  <strong>Slot {slot.index}</strong>
+                  <strong>Index {slot.index}</strong>
                   <span>{slot.exists ? 'Ready' : 'Missing files'}</span>
-                  <small>{slot.folder}</small>
+                  <small>SYM: {slot.symmetricKeyPath}</small>
+                  <small>PRI: {slot.privateKeyPath}</small>
                 </article>
               ))}
             </div>
