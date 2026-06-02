@@ -3,7 +3,8 @@ use std::path::Path;
 
 const KEY_SLOT_COUNT: usize = 10;
 
-#[derive(Debug, Deserialize)]\#[serde(rename_all = "camelCase")]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct FirmwareGenerationRequest {
     key_root_dir: String,
     firmware_path: String,
