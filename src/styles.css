@@ -27,10 +27,21 @@ button {
   color: #0f172a;
   background: #7dd3fc;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 button:hover {
   background: #bae6fd;
+}
+
+button.secondary {
+  color: #e2e8f0;
+  background: rgba(51, 65, 85, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+button.secondary:hover {
+  background: rgba(71, 85, 105, 0.95);
 }
 
 input {
@@ -110,6 +121,12 @@ h3 {
   grid-column: 1 / -1;
 }
 
+.path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
 .field span {
   color: #e2e8f0;
   font-size: 14px;
@@ -123,7 +140,8 @@ h3 {
 .actions {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
+  flex-wrap: wrap;
   margin-top: 26px;
 }
 
@@ -150,6 +168,10 @@ h3 {
   padding: 14px;
   border-radius: 12px;
   background: rgba(30, 41, 59, 0.8);
+}
+
+.summary-list .wide-summary {
+  grid-column: 1 / -1;
 }
 
 .summary-list dt {
@@ -224,8 +246,9 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .actions {
+  .actions,
+  .path-row {
     align-items: flex-start;
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 }
