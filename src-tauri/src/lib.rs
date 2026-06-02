@@ -3,6 +3,7 @@ use cbc::cipher::block_padding::NoPadding;
 use cbc::cipher::{BlockEncryptMut, KeyIvInit};
 use p256::ecdsa::signature::Signer;
 use p256::ecdsa::{Signature, SigningKey};
+use p256::pkcs8::DecodePrivateKey;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
