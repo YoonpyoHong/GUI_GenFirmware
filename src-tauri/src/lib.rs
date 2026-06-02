@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 const KEY_SLOT_COUNT: usize = 10;
 const HEADER_TOTAL_LEN: usize = 1024;
 const HEADER_SIGNED_LEN: usize = 112;
-const HEADER_SIGNATURE_LEN: usize = 64;
 const HEADER_RESERVED_TAIL_LEN: usize = 848;
 const BLOCK_ALIGN_LEN: usize = 2048;
 const FINAL_SIGNATURE_LEN: usize = 64;
@@ -23,7 +22,8 @@ type Aes256CbcEnc = cbc::Encryptor<Aes256>;
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct FirmwareGenerationRequest {
-    key_root_dir: String,
+    symmetric_key_dir: String,
+    private_key_dir: String,
     firmware_path: String,
     output_dir: String,
     version_major: u16,
@@ -36,7 +36,6 @@ struct FirmwareGenerationRequest {
 #[serde(rename_all = "camelCase")]
 struct KeySlotCheck {
     index: usize,
-    folder: String,
     symmetric_key_path: String,
     private_key_path: String,
     exists: bool,
@@ -108,9 +107,9 @@ fn generate_firmware_image(request: FirmwareGenerationRequest) -> Result<Firmwar
     let header_hash = Sha256::digest(&header_build.header_unsigned);
     let key_index = derive_key_index(&header_hash);
 
-    let key_paths = key_paths(&request.key_root_dir, key_index);
-    let aes_key = read_aes256_key(&key_paths.0)?;
-    let signing_key = read_signing_key(&key_paths.1)?;
+    let (aes_key_path, private_key_path) = key_paths(&request.symmetric_key_dir, &request.private_key_dir, key_index);
+    let aes_key = read_aes256_key(&aes_key_path)?;
+    let signing_key = read_signing_key(&private_key_path)?;
 
     let header_signature = sign_raw64(&signing_key, &header_build.header_unsigned);
     header_build.header.extend_from_slice(&header_signature);
@@ -179,12 +178,17 @@ fn generate_firmware_image(request: FirmwareGenerationRequest) -> Result<Firmwar
 }
 
 fn build_generation_plan(request: FirmwareGenerationRequest) -> Result<FirmwareGenerationPlan, String> {
-    let key_root = Path::new(&request.key_root_dir);
+    let symmetric_key_dir = Path::new(&request.symmetric_key_dir);
+    let private_key_dir = Path::new(&request.private_key_dir);
     let firmware_path = Path::new(&request.firmware_path);
     let output_dir = Path::new(&request.output_dir);
 
-    if request.key_root_dir.trim().is_empty() {
-        return Err("Key root directory is required".to_string());
+    if request.symmetric_key_dir.trim().is_empty() {
+        return Err("Symmetric key directory is required".to_string());
+    }
+
+    if request.private_key_dir.trim().is_empty() {
+        return Err("Private key directory is required".to_string());
     }
 
     if request.firmware_path.trim().is_empty() {
@@ -197,10 +201,17 @@ fn build_generation_plan(request: FirmwareGenerationRequest) -> Result<FirmwareG
 
     let mut warnings = Vec::new();
 
-    if !key_root.exists() {
+    if !symmetric_key_dir.exists() {
         warnings.push(format!(
-            "Key root directory does not exist yet: {}",
-            request.key_root_dir
+            "Symmetric key directory does not exist yet: {}",
+            request.symmetric_key_dir
+        ));
+    }
+
+    if !private_key_dir.exists() {
+        warnings.push(format!(
+            "Private key directory does not exist yet: {}",
+            request.private_key_dir
         ));
     }
 
@@ -220,20 +231,18 @@ fn build_generation_plan(request: FirmwareGenerationRequest) -> Result<FirmwareG
 
     let key_slots = (1..=KEY_SLOT_COUNT)
         .map(|index| {
-            let (symmetric_key_path, private_key_path) = key_paths(&request.key_root_dir, index);
-            let slot_dir = key_root.join(index.to_string());
-            let exists = slot_dir.exists() && symmetric_key_path.exists() && private_key_path.exists();
+            let (symmetric_key_path, private_key_path) = key_paths(&request.symmetric_key_dir, &request.private_key_dir, index);
+            let exists = symmetric_key_path.exists() && private_key_path.exists();
 
             if !exists {
                 warnings.push(format!(
-                    "Key slot {} should contain {}.key and {}.pem",
+                    "Key index {} should have symmetric key {}.bin and private key {}.txt",
                     index, index, index
                 ));
             }
 
             KeySlotCheck {
                 index,
-                folder: slot_dir.display().to_string(),
                 symmetric_key_path: symmetric_key_path.display().to_string(),
                 private_key_path: private_key_path.display().to_string(),
                 exists,
@@ -329,13 +338,13 @@ fn read_aes256_key(path: &Path) -> Result<[u8; 32], String> {
 fn read_signing_key(path: &Path) -> Result<SigningKey, String> {
     let pem = fs::read_to_string(path).map_err(|error| {
         format!(
-            "Failed to read ECDSA private key PEM {}: {error}",
+            "Failed to read ECDSA private key text file {}: {error}",
             path.display()
         )
     })?;
 
     SigningKey::from_pkcs8_pem(&pem)
-        .map_err(|error| format!("Failed to parse ECDSA P-256 private key PEM: {error}"))
+        .map_err(|error| format!("Failed to parse ECDSA P-256 private key from text file: {error}"))
 }
 
 fn sign_raw64(signing_key: &SigningKey, data: &[u8]) -> [u8; 64] {
@@ -353,11 +362,10 @@ fn derive_key_index(header_hash: &[u8]) -> usize {
     (value as usize % KEY_SLOT_COUNT) + 1
 }
 
-fn key_paths(key_root_dir: &str, index: usize) -> (PathBuf, PathBuf) {
-    let slot_dir = Path::new(key_root_dir).join(index.to_string());
+fn key_paths(symmetric_key_dir: &str, private_key_dir: &str, index: usize) -> (PathBuf, PathBuf) {
     (
-        slot_dir.join(format!("{index}.key")),
-        slot_dir.join(format!("{index}.pem")),
+        Path::new(symmetric_key_dir).join(format!("{index}.bin")),
+        Path::new(private_key_dir).join(format!("{index}.txt")),
     )
 }
 
